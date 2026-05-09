@@ -82,6 +82,7 @@ class RawHttpTestServer:
             200: "OK",
             201: "Created",
             204: "No Content",
+            301: "Moved Permanently",
             404: "Not Found",
             500: "Internal Server Error",
             502: "Bad Gateway",
@@ -122,10 +123,12 @@ class ProxyBackend:
         *,
         status_code: int = 200,
         delay_seconds: float = 0.0,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.routes[f"/proxy/{proxy_id}"] = {
             "status_code": status_code,
             "delay_seconds": delay_seconds,
+            "headers": headers or {},
             "body": {"proxy_id": proxy_id, "status": status_code},
         }
 
@@ -138,7 +141,7 @@ class ProxyBackend:
         if delay_seconds:
             await asyncio.sleep(delay_seconds)
 
-        return int(route["status_code"]), {}, route["body"]
+        return int(route["status_code"]), dict(route.get("headers", {})), route["body"]
 
 
 class WebhookCapture:
@@ -276,6 +279,90 @@ async def test_background_monitoring_wakes_immediately_and_recovers_without_fals
         await wait_for(assert_recovered)
     finally:
         await proxy_backend.close()
+
+
+@pytest.mark.asyncio
+async def test_probes_and_webhooks_follow_redirects(live_client):
+    target_backend = ProxyBackend()
+    redirect_backend = ProxyBackend()
+    capture = WebhookCapture(response_codes=[200])
+    redirect_attempts: list[dict] = []
+
+    async def redirect_handler(method: str, path: str, headers: dict[str, str], body: bytes):
+        payload = json.loads(body.decode()) if body else {}
+        redirect_attempts.append(
+            {
+                "method": method,
+                "path": path,
+                "headers": headers,
+                "payload": payload,
+            }
+        )
+        return 301, {"Location": capture.url}, ""
+
+    redirect_webhook = RawHttpTestServer(redirect_handler)
+
+    await target_backend.start()
+    await redirect_backend.start()
+    await capture.start()
+    await redirect_webhook.start()
+
+    try:
+        for index in range(5):
+            proxy_id = f"px-{index:03d}"
+            target_backend.set_proxy(proxy_id, status_code=200)
+            redirect_backend.set_proxy(
+                proxy_id,
+                status_code=301,
+                headers={"Location": target_backend.url_for(proxy_id)},
+            )
+
+        await live_client.post(
+            "/config",
+            json={"check_interval_seconds": 1, "request_timeout_ms": 300},
+        )
+        await live_client.post("/webhooks", json={"url": f"{redirect_webhook.base_url}/hook"})
+        await live_client.post(
+            "/proxies",
+            json={
+                "replace": True,
+                "proxies": [redirect_backend.url_for(f"px-{index:03d}") for index in range(5)],
+            },
+        )
+
+        async def assert_all_up():
+            current = (await live_client.get("/proxies")).json()
+            assert current["up"] == 5
+            assert current["down"] == 0
+            assert all(proxy["status"] == "up" for proxy in current["proxies"])
+            return current
+
+        await wait_for(assert_all_up)
+
+        target_backend.set_proxy("px-000", status_code=500)
+
+        async def assert_alert_and_redirect_delivery():
+            alerts = (await live_client.get("/alerts")).json()
+            assert len(alerts) == 1
+            alert = alerts[0]
+            assert alert["status"] == "active"
+            assert alert["failed_proxy_ids"] == ["px-000"]
+            assert alert["failed_proxies"] == 1
+            assert alert["total_proxies"] == 5
+            assert round(alert["failure_rate"], 4) == 0.2
+            assert len(redirect_attempts) == 1
+            assert len(capture.successful_payloads) == 1
+            payload = capture.successful_payloads[0]
+            assert payload["event"] == "alert.fired"
+            assert payload["failed_proxy_ids"] == ["px-000"]
+            return payload
+
+        await wait_for(assert_alert_and_redirect_delivery)
+    finally:
+        await target_backend.close()
+        await redirect_backend.close()
+        await capture.close()
+        await redirect_webhook.close()
 
 
 @pytest.mark.asyncio

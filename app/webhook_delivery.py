@@ -8,6 +8,8 @@ from app.integrations import format_slack_message, format_discord_message
 
 RETRY_STATUS_CODES = {500, 502, 503, 504}
 MAX_DELIVERY_SECONDS = 60
+REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+MAX_REDIRECTS = 5
 
 
 async def _post_with_retry(url: str, json_payload: dict) -> bool:
@@ -17,8 +19,26 @@ async def _post_with_retry(url: str, json_payload: dict) -> bool:
     while True:
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=json_payload, timeout=10.0)
-            if response.status_code < 500:
+                current_url = url
+                redirects_followed = 0
+
+                while True:
+                    response = await client.post(
+                        current_url,
+                        json=json_payload,
+                        timeout=10.0,
+                        follow_redirects=False,
+                    )
+                    if response.status_code not in REDIRECT_STATUS_CODES:
+                        break
+
+                    location = response.headers.get("Location")
+                    if not location or redirects_followed >= MAX_REDIRECTS:
+                        return False
+
+                    current_url = str(httpx.URL(current_url).join(location))
+                    redirects_followed += 1
+            if 200 <= response.status_code < 300:
                 return True
             if response.status_code not in RETRY_STATUS_CODES:
                 return False

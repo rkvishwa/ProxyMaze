@@ -13,7 +13,11 @@ async def probe_proxy_url(url: str, timeout_ms: int) -> ProxyCheck:
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=timeout_seconds)
+            response = await client.get(
+                url,
+                timeout=timeout_seconds,
+                follow_redirects=True,
+            )
         if 200 <= response.status_code < 300:
             return ProxyCheck(checked_at=checked_at, status=CheckStatus.UP)
         else:
