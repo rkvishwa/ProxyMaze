@@ -35,6 +35,14 @@ async def evaluate_alerts(state: AppState, failure_rate: float) -> None:
                 state.alerts.append(alert)
                 event = ("alert.fired", alert)
             else:
+                # Ongoing breach -- update alert to reflect current pool state.
+                down_proxy_ids_now = [
+                    p.id for p in state.proxies.values() if p.status == CheckStatus.DOWN
+                ]
+                state.active_alert.failure_rate = round(failure_rate, 4)
+                state.active_alert.total_proxies = len(state.proxies)
+                state.active_alert.failed_proxies = len(down_proxy_ids_now)
+                state.active_alert.failed_proxy_ids = down_proxy_ids_now
                 event = None
         else:
             if state.active_alert is not None:

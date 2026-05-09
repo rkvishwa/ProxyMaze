@@ -83,3 +83,44 @@ async def test_alert_lifecycle_single_active(client):
     assert state.active_alert is not None
     assert state.active_alert.alert_id != first_alert_id
     assert len(state.alerts) == 2
+
+
+@pytest.mark.asyncio
+async def test_alert_fields_update_during_ongoing_breach(client):
+    state = client._transport.app.state.app_state
+
+    async with state.lock:
+        state.proxies.clear()
+        for i in range(5):
+            from app.models import Proxy
+            p = Proxy(id=f"px-{i}", url=f"http://example.com/px-{i}")
+            p.status = CheckStatus.DOWN
+            state.proxies[p.id] = p
+
+    from app.analyzer import calculate_failure_rate
+    from app.alert_manager import evaluate_alerts
+
+    failure_rate = calculate_failure_rate(state)
+    await evaluate_alerts(state, failure_rate)
+
+    alert = state.active_alert
+    assert alert is not None
+    assert alert.failed_proxy_ids == ["px-0", "px-1", "px-2", "px-3", "px-4"]
+
+    # Simulate one proxy recovering while breach continues
+    async with state.lock:
+        state.proxies["px-4"].status = CheckStatus.UP
+
+    failure_rate = calculate_failure_rate(state)
+    await evaluate_alerts(state, failure_rate)
+
+    assert state.active_alert.alert_id == alert.alert_id
+    assert state.active_alert.failed_proxy_ids == ["px-0", "px-1", "px-2", "px-3"]
+    assert state.active_alert.failed_proxies == 4
+    assert state.active_alert.total_proxies == 5
+    assert state.active_alert.failure_rate == round(failure_rate, 4)
+
+    response = await client.get("/alerts")
+    alerts = response.json()
+    assert alerts[0]["failed_proxy_ids"] == ["px-0", "px-1", "px-2", "px-3"]
+
