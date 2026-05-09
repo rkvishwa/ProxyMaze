@@ -45,7 +45,7 @@ async def test_alert_lifecycle_single_active(client):
     await evaluate_alerts(state, failure_rate)
     assert state.active_alert is None
     assert len(state.alerts) == 1
-    assert state.alerts[0].status == "resolved"
+    assert state.alerts[0].status.value == "resolved"
 
     async with state.lock:
         for p in state.proxies.values():

@@ -1,6 +1,6 @@
 import re
-from fastapi import APIRouter, Request, HTTPException
-from app.models import Proxy, ProxyIn, ProxyView, ProxyDetailView
+from fastapi import APIRouter, Request, HTTPException, Response
+from app.models import Proxy, ProxyIn, ProxyView, ProxyDetailView, CheckStatus
 from app.state import AppState
 
 router = APIRouter()
@@ -17,25 +17,53 @@ def extract_proxy_id(url: str) -> str:
     return match.group(1)
 
 
-@router.post("/proxies")
+@router.post("/proxies", status_code=201)
 async def add_proxies(body: ProxyIn, request: Request) -> dict:
     state: AppState = get_state(request)
     async with state.lock:
         if body.replace:
             state.proxies.clear()
-        for url in body.urls:
+        accepted_proxies = []
+        for url in body.proxies:
             proxy_id = extract_proxy_id(url)
-            state.proxies[proxy_id] = Proxy(id=proxy_id, url=url)
-    return {"added": len(body.urls), "replaced": body.replace}
+            proxy = Proxy(id=proxy_id, url=url)
+            state.proxies[proxy_id] = proxy
+            accepted_proxies.append(proxy)
+    return {
+        "accepted": len(accepted_proxies),
+        "proxies": [
+            {"id": p.id, "url": p.url, "status": p.status} for p in accepted_proxies
+        ],
+    }
 
 
-@router.get("/proxies", response_model=list[ProxyView])
-async def list_proxies(request: Request) -> list[ProxyView]:
+@router.get("/proxies")
+async def list_proxies(request: Request) -> dict:
     state: AppState = get_state(request)
-    return [
-        ProxyView(id=p.id, url=p.url, status=p.status)
-        for p in state.proxies.values()
+    proxy_list = list(state.proxies.values())
+    total = len(proxy_list)
+    up = sum(1 for p in proxy_list if p.status == CheckStatus.UP)
+    down = sum(1 for p in proxy_list if p.status == CheckStatus.DOWN)
+    failure_rate = down / total if total > 0 else 0.0
+
+    proxies = [
+        ProxyView(
+            id=p.id,
+            url=p.url,
+            status=p.status,
+            last_checked_at=p.last_checked_at,
+            consecutive_failures=p.consecutive_failures,
+        )
+        for p in proxy_list
     ]
+
+    return {
+        "total": total,
+        "up": up,
+        "down": down,
+        "failure_rate": failure_rate,
+        "proxies": [p.model_dump() for p in proxies],
+    }
 
 
 @router.get("/proxies/{proxy_id}", response_model=ProxyDetailView)
@@ -48,14 +76,26 @@ async def get_proxy(proxy_id: str, request: Request) -> ProxyDetailView:
         id=proxy.id,
         url=proxy.url,
         status=proxy.status,
+        last_checked_at=proxy.last_checked_at,
+        consecutive_failures=proxy.consecutive_failures,
+        total_checks=proxy.total_checks,
         uptime_percentage=proxy.uptime_percentage,
         history=proxy.history,
     )
 
 
-@router.delete("/proxies")
-async def delete_proxies(request: Request) -> dict:
+@router.get("/proxies/{proxy_id}/history")
+async def get_proxy_history(proxy_id: str, request: Request) -> list[dict]:
+    state: AppState = get_state(request)
+    proxy = state.proxies.get(proxy_id)
+    if not proxy:
+        raise HTTPException(status_code=404, detail="Proxy not found")
+    return [{"checked_at": c.checked_at, "status": c.status} for c in proxy.history]
+
+
+@router.delete("/proxies", status_code=204)
+async def delete_proxies(request: Request) -> Response:
     state: AppState = get_state(request)
     async with state.lock:
         state.proxies.clear()
-    return {"deleted": True}
+    return Response(status_code=204)

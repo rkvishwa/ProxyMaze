@@ -10,8 +10,14 @@ def get_state(request: Request) -> AppState:
     return request.app.state.app_state
 
 
-@router.post("/integrations")
+@router.post("/integrations", status_code=201)
 async def register_integration(body: Integration, request: Request) -> dict:
     state: AppState = get_state(request)
     add_integration(state, body)
-    return {"registered": True, "type": body.type, "webhook_url": body.webhook_url}
+    return {
+        "registered": True,
+        "type": body.type,
+        "webhook_url": body.webhook_url,
+        "username": body.username,
+        "events": body.events,
+    }

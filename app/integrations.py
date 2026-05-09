@@ -6,49 +6,102 @@ def add_integration(state: AppState, integration: Integration) -> None:
     state.integrations.append(integration)
 
 
-def format_slack_message(payload: dict) -> dict:
+def _parse_timestamp(payload: dict) -> float:
+    ts_str = payload.get("fired_at") or payload.get("resolved_at", "")
+    if not ts_str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).timestamp()
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.strptime(ts_str.replace("Z", "+00:00"), "%Y-%m-%dT%H:%M:%S%z")
+        return dt.timestamp()
+    except Exception:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).timestamp()
+
+
+def format_slack_message(payload: dict, username: str) -> dict:
     event = payload.get("event", "")
     alert_id = payload.get("alert_id", "")
     failure_rate = payload.get("failure_rate", 0.0)
-    timestamp = payload.get("timestamp", "")
+    total_proxies = payload.get("total_proxies", 0)
+    failed_proxies = payload.get("failed_proxies", 0)
+    failed_proxy_ids = payload.get("failed_proxy_ids", [])
+    threshold = payload.get("threshold", 0.2)
+    message = payload.get("message", "")
 
     if event == "alert.fired":
-        text = (
-            f":warning: *Alert Fired*\n"
-            f"*Alert ID:* {alert_id}\n"
-            f"*Failure Rate:* {failure_rate:.2%}\n"
-            f"*Triggered At:* {timestamp}"
-        )
+        fired_at = payload.get("fired_at", "")
+        summary = message or "Proxy pool failure rate exceeded threshold"
+        color = "#FF0000"
+        footer_ts = _parse_timestamp(payload)
+        fields = [
+            {"title": "Alert ID", "value": alert_id},
+            {"title": "Failure Rate", "value": f"{failure_rate:.2f}"},
+            {"title": "Failed Proxies", "value": str(failed_proxies)},
+            {"title": "Threshold", "value": str(threshold)},
+            {"title": "Failed IDs", "value": ", ".join(failed_proxy_ids) if failed_proxy_ids else "None"},
+            {"title": "Fired At", "value": fired_at},
+        ]
     else:
-        text = (
-            f":white_check_mark: *Alert Resolved*\n"
-            f"*Alert ID:* {alert_id}\n"
-            f"*Failure Rate:* {failure_rate:.2%}\n"
-            f"*Resolved At:* {timestamp}"
-        )
+        resolved_at = payload.get("resolved_at", "")
+        summary = f"Alert {alert_id} resolved at {resolved_at}"
+        color = "#00FF00"
+        footer_ts = _parse_timestamp(payload)
+        fields = [
+            {"title": "Alert ID", "value": alert_id},
+            {"title": "Failure Rate", "value": f"{failure_rate:.2f}"},
+            {"title": "Failed Proxies", "value": str(failed_proxies)},
+            {"title": "Threshold", "value": str(threshold)},
+            {"title": "Failed IDs", "value": ", ".join(failed_proxy_ids) if failed_proxy_ids else "None"},
+            {"title": "Resolved At", "value": resolved_at},
+        ]
 
-    return {"text": text}
+    return {
+        "username": username,
+        "text": summary,
+        "attachments": [
+            {
+                "color": color,
+                "fields": fields,
+                "footer": "ProxyMaze",
+                "ts": int(footer_ts),
+            }
+        ],
+    }
 
 
 def format_discord_message(payload: dict) -> dict:
     event = payload.get("event", "")
     alert_id = payload.get("alert_id", "")
     failure_rate = payload.get("failure_rate", 0.0)
-    timestamp = payload.get("timestamp", "")
+    total_proxies = payload.get("total_proxies", 0)
+    failed_proxies = payload.get("failed_proxies", 0)
+    failed_proxy_ids = payload.get("failed_proxy_ids", [])
+    threshold = payload.get("threshold", 0.2)
+    message = payload.get("message", "")
 
     if event == "alert.fired":
-        content = (
-            f"\u26a0\ufe0f **Alert Fired**\n"
-            f"**Alert ID:** {alert_id}\n"
-            f"**Failure Rate:** {failure_rate:.2%}\n"
-            f"**Triggered At:** {timestamp}"
-        )
+        color = 16711680
+        summary = message or "Proxy pool failure rate exceeded threshold"
+        title = "Alert Fired"
     else:
-        content = (
-            f"\u2705 **Alert Resolved**\n"
-            f"**Alert ID:** {alert_id}\n"
-            f"**Failure Rate:** {failure_rate:.2%}\n"
-            f"**Resolved At:** {timestamp}"
-        )
+        color = 65280
+        summary = f"Alert {alert_id} has been resolved"
+        title = "Alert Resolved"
 
-    return {"content": content}
+    embed = {
+        "title": title,
+        "description": summary,
+        "color": color,
+        "fields": [
+            {"name": "Alert ID", "value": alert_id},
+            {"name": "Failure Rate", "value": f"{failure_rate:.2f}"},
+            {"name": "Failed Proxies", "value": str(failed_proxies)},
+            {"name": "Threshold", "value": str(threshold)},
+            {"name": "Failed IDs", "value": ", ".join(failed_proxy_ids) if failed_proxy_ids else "None"},
+        ],
+        "footer": {"text": "ProxyMaze"},
+    }
+
+    return {"embeds": [embed]}

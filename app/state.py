@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, List, Optional
+from typing import Dict, List
 from app.models import Alert, Proxy, Webhook, Integration, Metrics
 from app.config import AppConfig
 
@@ -9,10 +9,10 @@ class AppState:
         self.config: AppConfig = AppConfig()
         self.proxies: Dict[str, Proxy] = {}
         self.alerts: List[Alert] = []
-        self.active_alert: Optional[Alert] = None
+        self.active_alert: Alert | None = None
         self.webhooks: List[Webhook] = []
         self.integrations: List[Integration] = []
-        self.scheduler_task: Optional[asyncio.Task] = None
+        self.scheduler_task: asyncio.Task | None = None
         self.lock: asyncio.Lock = asyncio.Lock()
 
         # Metrics counters
@@ -25,6 +25,8 @@ class AppState:
     def get_metrics(self) -> Metrics:
         return Metrics(
             total_checks=self.total_checks,
+            current_pool_size=len(self.proxies),
             active_alerts=1 if self.active_alert else 0,
+            total_alerts=len(self.alerts),
             webhook_deliveries=self.webhook_deliveries,
         )

@@ -5,14 +5,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CheckStatus(str, Enum):
-    UP = "UP"
-    DOWN = "DOWN"
+    UP = "up"
+    DOWN = "down"
+    PENDING = "pending"
 
 
 class ProxyCheck(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    timestamp: str
+    checked_at: str
     status: CheckStatus
 
 
@@ -21,8 +22,10 @@ class Proxy(BaseModel):
 
     id: str
     url: str
-    status: CheckStatus = CheckStatus.DOWN
+    status: CheckStatus = CheckStatus.PENDING
     history: List[ProxyCheck] = Field(default_factory=list)
+    consecutive_failures: int = 0
+    last_checked_at: Optional[str] = None
 
     @property
     def uptime_percentage(self) -> float:
@@ -31,11 +34,15 @@ class Proxy(BaseModel):
         up_count = sum(1 for check in self.history if check.status == CheckStatus.UP)
         return round((up_count / len(self.history)) * 100, 2)
 
+    @property
+    def total_checks(self) -> int:
+        return len(self.history)
+
 
 class ProxyIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    urls: List[str]
+    proxies: List[str]
     replace: bool = False
 
 
@@ -45,6 +52,8 @@ class ProxyView(BaseModel):
     id: str
     url: str
     status: CheckStatus
+    last_checked_at: Optional[str] = None
+    consecutive_failures: int = 0
 
 
 class ProxyDetailView(BaseModel):
@@ -53,6 +62,9 @@ class ProxyDetailView(BaseModel):
     id: str
     url: str
     status: CheckStatus
+    last_checked_at: Optional[str] = None
+    consecutive_failures: int = 0
+    total_checks: int = 0
     uptime_percentage: float
     history: List[ProxyCheck]
 
@@ -68,13 +80,19 @@ class Alert(BaseModel):
     alert_id: str
     status: AlertStatus
     failure_rate: float
-    triggered_at: str
+    total_proxies: int
+    failed_proxies: int
+    failed_proxy_ids: List[str]
+    threshold: float = 0.2
+    fired_at: str
     resolved_at: Optional[str] = None
+    message: str
 
 
 class Webhook(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    webhook_id: str
     url: str
 
 
@@ -88,6 +106,8 @@ class Integration(BaseModel):
 
     type: IntegrationType
     webhook_url: str
+    username: str = "ProxyWatch"
+    events: List[str] = Field(default_factory=lambda: ["alert.fired", "alert.resolved"])
 
 
 class ConfigUpdate(BaseModel):
@@ -107,14 +127,7 @@ class Metrics(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     total_checks: int
+    current_pool_size: int
     active_alerts: int
+    total_alerts: int
     webhook_deliveries: int
-
-
-class WebhookPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    event: str
-    alert_id: str
-    failure_rate: float
-    timestamp: str

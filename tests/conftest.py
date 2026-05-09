@@ -16,7 +16,7 @@ async def client():
 @pytest.fixture
 async def client_with_proxies(client):
     await client.post("/proxies", json={
-        "urls": [
+        "proxies": [
             "http://example.com/px-101",
             "http://example.com/px-102",
             "http://example.com/px-103",

@@ -6,9 +6,9 @@ async def test_register_webhook(client):
     response = await client.post("/webhooks", json={
         "url": "http://example.com/webhook",
     })
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
-    assert data["registered"] is True
+    assert "webhook_id" in data
     assert data["url"] == "http://example.com/webhook"
 
 
@@ -18,4 +18,4 @@ async def test_register_webhook_unknown_fields(client):
         "url": "http://example.com/webhook",
         "unknown": "ignored",
     })
-    assert response.status_code == 200
+    assert response.status_code == 201

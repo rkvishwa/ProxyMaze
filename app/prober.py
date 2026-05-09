@@ -7,15 +7,15 @@ from app.state import AppState
 
 async def probe_proxy_url(url: str, timeout_ms: int) -> ProxyCheck:
     timeout_seconds = timeout_ms / 1000.0
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, timeout=timeout_seconds)
         if 200 <= response.status_code < 300:
-            return ProxyCheck(timestamp=timestamp, status=CheckStatus.UP)
+            return ProxyCheck(checked_at=checked_at, status=CheckStatus.UP)
         else:
-            return ProxyCheck(timestamp=timestamp, status=CheckStatus.DOWN)
+            return ProxyCheck(checked_at=checked_at, status=CheckStatus.DOWN)
     except (
         httpx.TimeoutException,
         httpx.ConnectError,
@@ -23,7 +23,7 @@ async def probe_proxy_url(url: str, timeout_ms: int) -> ProxyCheck:
         httpx.ReadError,
         httpx.WriteError,
     ):
-        return ProxyCheck(timestamp=timestamp, status=CheckStatus.DOWN)
+        return ProxyCheck(checked_at=checked_at, status=CheckStatus.DOWN)
 
 
 async def run_probe_round(state: AppState) -> None:
@@ -40,7 +40,7 @@ async def run_probe_round(state: AppState) -> None:
         for proxy, result in zip(proxy_list, results):
             if isinstance(result, Exception):
                 check = ProxyCheck(
-                    timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    checked_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     status=CheckStatus.DOWN,
                 )
             else:
@@ -48,4 +48,9 @@ async def run_probe_round(state: AppState) -> None:
 
             proxy.history.append(check)
             proxy.status = check.status
+            proxy.last_checked_at = check.checked_at
+            if check.status == CheckStatus.DOWN:
+                proxy.consecutive_failures += 1
+            else:
+                proxy.consecutive_failures = 0
             state.total_checks += 1

@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import httpx
 from app.state import AppState
-from app.models import Alert, WebhookPayload, IntegrationType
+from app.models import Alert, IntegrationType
 from app.integrations import format_slack_message, format_discord_message
 
 
@@ -37,25 +37,44 @@ async def _post_with_retry(url: str, json_payload: dict) -> bool:
         delay = min(delay * 2, 10.0)
 
 
+def _build_fired_payload(alert: Alert) -> dict:
+    return {
+        "event": "alert.fired",
+        "alert_id": alert.alert_id,
+        "fired_at": alert.fired_at,
+        "failure_rate": alert.failure_rate,
+        "total_proxies": alert.total_proxies,
+        "failed_proxies": alert.failed_proxies,
+        "failed_proxy_ids": alert.failed_proxy_ids,
+        "threshold": alert.threshold,
+        "message": alert.message,
+    }
+
+
+def _build_resolved_payload(alert: Alert) -> dict:
+    return {
+        "event": "alert.resolved",
+        "alert_id": alert.alert_id,
+        "resolved_at": alert.resolved_at,
+    }
+
+
 async def dispatch_alert_event(state: AppState, alert: Alert, event: str) -> None:
-    base_payload = WebhookPayload(
-        event=event,
-        alert_id=alert.alert_id,
-        failure_rate=alert.failure_rate,
-        timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    )
+    if event == "alert.fired":
+        base_payload = _build_fired_payload(alert)
+    else:
+        base_payload = _build_resolved_payload(alert)
 
     tasks: list[asyncio.Task[bool]] = []
 
     for webhook in state.webhooks:
-        tasks.append(asyncio.create_task(_post_with_retry(webhook.url, base_payload.model_dump())))
+        tasks.append(asyncio.create_task(_post_with_retry(webhook.url, base_payload)))
 
     for integration in state.integrations:
-        raw = base_payload.model_dump()
         if integration.type == IntegrationType.SLACK:
-            payload = format_slack_message(raw)
+            payload = format_slack_message(base_payload, integration.username)
         else:
-            payload = format_discord_message(raw)
+            payload = format_discord_message(base_payload)
         tasks.append(asyncio.create_task(_post_with_retry(integration.webhook_url, payload)))
 
     if not tasks:
