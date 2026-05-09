@@ -23,14 +23,21 @@ async def add_proxies(body: ProxyIn, request: Request) -> dict:
     async with state.lock:
         if body.replace:
             state.proxies.clear()
+        seen_ids: set[str] = set()
         accepted_proxies = []
+        rejected_urls = []
         for url in body.proxies:
             proxy_id = extract_proxy_id(url)
+            if proxy_id in seen_ids:
+                rejected_urls.append(url)
+                continue
+            seen_ids.add(proxy_id)
             proxy = Proxy(id=proxy_id, url=url)
             state.proxies[proxy_id] = proxy
             accepted_proxies.append(proxy)
     return {
         "accepted": len(accepted_proxies),
+        "rejected": len(rejected_urls),
         "proxies": [
             {"id": p.id, "url": p.url, "status": p.status} for p in accepted_proxies
         ],

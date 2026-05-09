@@ -19,7 +19,24 @@ async def test_add_proxies(client):
 
 
 @pytest.mark.asyncio
-async def test_add_proxies_replace(client):
+async def test_add_proxies_duplicates_rejected(client):
+    response = await client.post("/proxies", json={
+        "proxies": [
+            "http://host1.example.com/px-101",
+            "http://host2.example.com/px-101",  # same ID, should be rejected
+            "http://host3.example.com/px-102",
+        ],
+        "replace": False,
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert data["accepted"] == 2
+    assert data["rejected"] == 1
+    assert len(data["proxies"]) == 2
+
+    list_resp = await client.get("/proxies")
+    list_data = list_resp.json()
+    assert list_data["total"] == 2
     await client.post("/proxies", json={
         "proxies": ["http://example.com/old-proxy"],
         "replace": False,

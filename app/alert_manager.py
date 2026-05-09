@@ -12,10 +12,13 @@ async def evaluate_alerts(state: AppState, failure_rate: float) -> None:
     async with state.lock:
         if failure_rate >= BREACH_THRESHOLD:
             if state.active_alert is None:
-                down_proxy_ids = [
-                    p.id for p in state.proxies.values() if p.status == CheckStatus.DOWN
+                probed_proxies = [
+                    p for p in state.proxies.values() if p.status != CheckStatus.PENDING
                 ]
-                total_proxies = len(state.proxies)
+                down_proxy_ids = [
+                    p.id for p in probed_proxies if p.status == CheckStatus.DOWN
+                ]
+                total_proxies = len(probed_proxies)
                 failed_proxies = len(down_proxy_ids)
                 alert = Alert(
                     alert_id=str(uuid.uuid4()),

@@ -3,10 +3,37 @@ from app.models import CheckStatus
 
 
 @pytest.mark.asyncio
-async def test_alerts_empty(client):
+async def test_alert_excludes_pending_proxies(client):
+    state = client._transport.app.state.app_state
+
+    async with state.lock:
+        state.proxies.clear()
+        for i in range(4):
+            from app.models import Proxy
+            p = Proxy(id=f"px-{i}", url=f"http://example.com/px-{i}")
+            if i < 2:
+                p.status = CheckStatus.DOWN
+            else:
+                p.status = CheckStatus.PENDING
+            state.proxies[p.id] = p
+
+    from app.analyzer import calculate_failure_rate
+    from app.alert_manager import evaluate_alerts
+
+    failure_rate = calculate_failure_rate(state)
+    assert failure_rate == 1.0
+
+    await evaluate_alerts(state, failure_rate)
+    assert state.active_alert is not None
+    assert state.active_alert.total_proxies == 2
+    assert state.active_alert.failed_proxies == 2
     response = await client.get("/alerts")
     assert response.status_code == 200
-    assert response.json() == []
+    alerts = response.json()
+    assert len(alerts) == 1
+    assert alerts[0]["total_proxies"] == 2
+    assert alerts[0]["failed_proxies"] == 2
+    assert alerts[0]["failed_proxy_ids"] == ["px-0", "px-1"]
 
 
 @pytest.mark.asyncio
