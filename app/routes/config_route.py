@@ -19,3 +19,9 @@ async def update_config(body: ConfigUpdate, request: Request) -> AppConfig:
         if body.request_timeout_ms is not None:
             state.config.request_timeout_ms = body.request_timeout_ms
     return state.config
+
+
+@router.get("/config")
+async def get_config(request: Request) -> AppConfig:
+    state: AppState = get_state(request)
+    return state.config

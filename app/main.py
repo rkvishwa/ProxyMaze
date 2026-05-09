@@ -35,9 +35,10 @@ async def root() -> dict:
     return {
         "service": "ProxyMaze Watchtower",
         "endpoints": {
-            "GET /": "This index. Lists all available endpoints.",
-            "GET /health": "Service health check. Returns {\"status\": \"ok\"}.",
-            "POST /config": "Update check_interval_seconds and/or request_timeout_ms. Applied immediately.",
+    "GET /": "This index. Lists all available endpoints.",
+    "GET /health": "Service health check. Returns {\"status\": \"ok\"}.",
+    "GET /config": "Retrieve current configuration values.",
+    "POST /config": "Update check_interval_seconds and/or request_timeout_ms. Applied immediately.",
             "POST /proxies": "Add proxy URLs to the pool. Extracts IDs from URL paths. Use {\"replace\": true} to clear existing pool first.",
             "GET /proxies": "List all proxies with their current status from the last background check.",
             "GET /proxies/{id}": "Get proxy detail including uptime_percentage and full check history.",
