@@ -12,4 +12,5 @@ def get_state(request: Request) -> AppState:
 @router.get("/alerts", response_model=list[Alert])
 async def list_alerts(request: Request) -> list[Alert]:
     state: AppState = get_state(request)
-    return state.alerts
+    async with state.lock:
+        return [alert.model_copy(deep=True) for alert in state.alerts]

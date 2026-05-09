@@ -1,8 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    check_interval_seconds: int = 30
-    request_timeout_ms: int = 5000
+    check_interval_seconds: int = Field(default=30, gt=0)
+    request_timeout_ms: int = Field(default=5000, gt=0)

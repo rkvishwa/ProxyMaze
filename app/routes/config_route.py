@@ -18,10 +18,13 @@ async def update_config(body: ConfigUpdate, request: Request) -> AppConfig:
             state.config.check_interval_seconds = body.check_interval_seconds
         if body.request_timeout_ms is not None:
             state.config.request_timeout_ms = body.request_timeout_ms
-    return state.config
+        config = state.config.model_copy(deep=True)
+    state.wake_scheduler()
+    return config
 
 
 @router.get("/config")
 async def get_config(request: Request) -> AppConfig:
     state: AppState = get_state(request)
-    return state.config
+    async with state.lock:
+        return state.config.model_copy(deep=True)

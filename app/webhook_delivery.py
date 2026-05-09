@@ -11,7 +11,7 @@ MAX_DELIVERY_SECONDS = 60
 
 
 async def _post_with_retry(url: str, json_payload: dict) -> bool:
-    start = asyncio.get_event_loop().time()
+    start = asyncio.get_running_loop().time()
     delay = 1.0
 
     while True:
@@ -29,7 +29,7 @@ async def _post_with_retry(url: str, json_payload: dict) -> bool:
         ):
             pass
 
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = asyncio.get_running_loop().time() - start
         if elapsed + delay > MAX_DELIVERY_SECONDS:
             return False
 
@@ -65,16 +65,33 @@ async def dispatch_alert_event(state: AppState, alert: Alert, event: str) -> Non
     else:
         base_payload = _build_resolved_payload(alert)
 
+    async with state.lock:
+        webhooks = [webhook.model_copy(deep=True) for webhook in state.webhooks]
+        integrations = [integration.model_copy(deep=True) for integration in state.integrations]
+
     tasks: list[asyncio.Task[bool]] = []
 
-    for webhook in state.webhooks:
+    for webhook in webhooks:
         tasks.append(asyncio.create_task(_post_with_retry(webhook.url, base_payload)))
 
-    for integration in state.integrations:
+    for integration in integrations:
+        if event not in integration.events:
+            continue
+
+        integration_payload = {
+            **base_payload,
+            "fired_at": alert.fired_at,
+            "failure_rate": alert.failure_rate,
+            "total_proxies": alert.total_proxies,
+            "failed_proxies": alert.failed_proxies,
+            "failed_proxy_ids": alert.failed_proxy_ids,
+            "threshold": alert.threshold,
+            "message": alert.message,
+        }
         if integration.type == IntegrationType.SLACK:
-            payload = format_slack_message(base_payload, integration.username)
+            payload = format_slack_message(integration_payload, integration.username)
         else:
-            payload = format_discord_message(base_payload)
+            payload = format_discord_message(integration_payload)
         tasks.append(asyncio.create_task(_post_with_retry(integration.webhook_url, payload)))
 
     if not tasks:
@@ -82,6 +99,7 @@ async def dispatch_alert_event(state: AppState, alert: Alert, event: str) -> Non
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for result in results:
-        if isinstance(result, bool) and result:
-            state.webhook_deliveries += 1
+    successful_deliveries = sum(1 for result in results if isinstance(result, bool) and result)
+    if successful_deliveries:
+        async with state.lock:
+            state.webhook_deliveries += successful_deliveries

@@ -13,7 +13,8 @@ def get_state(request: Request) -> AppState:
 @router.post("/integrations", status_code=201)
 async def register_integration(body: Integration, request: Request) -> dict:
     state: AppState = get_state(request)
-    add_integration(state, body)
+    async with state.lock:
+        add_integration(state, body)
     return {
         "registered": True,
         "type": body.type,

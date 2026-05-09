@@ -12,4 +12,5 @@ def get_state(request: Request) -> AppState:
 @router.get("/metrics", response_model=Metrics)
 async def get_metrics(request: Request) -> Metrics:
     state: AppState = get_state(request)
-    return state.get_metrics()
+    async with state.lock:
+        return state.get_metrics()

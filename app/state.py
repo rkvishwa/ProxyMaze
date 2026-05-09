@@ -14,10 +14,14 @@ class AppState:
         self.integrations: List[Integration] = []
         self.scheduler_task: asyncio.Task | None = None
         self.lock: asyncio.Lock = asyncio.Lock()
+        self.scheduler_wakeup: asyncio.Event = asyncio.Event()
 
         # Metrics counters
         self.total_checks: int = 0
         self.webhook_deliveries: int = 0
+
+    def wake_scheduler(self) -> None:
+        self.scheduler_wakeup.set()
 
     def get_proxy_count(self) -> int:
         return len(self.proxies)

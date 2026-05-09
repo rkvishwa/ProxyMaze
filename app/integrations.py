@@ -45,6 +45,7 @@ def format_slack_message(payload: dict, username: str) -> dict:
         ]
     else:
         resolved_at = payload.get("resolved_at", "")
+        fired_at = payload.get("fired_at", "")
         summary = f"Alert {alert_id} resolved at {resolved_at}"
         color = "#00FF00"
         footer_ts = _parse_timestamp(payload)
@@ -54,6 +55,7 @@ def format_slack_message(payload: dict, username: str) -> dict:
             {"title": "Failed Proxies", "value": str(failed_proxies)},
             {"title": "Threshold", "value": str(threshold)},
             {"title": "Failed IDs", "value": ", ".join(failed_proxy_ids) if failed_proxy_ids else "None"},
+            {"title": "Fired At", "value": fired_at},
             {"title": "Resolved At", "value": resolved_at},
         ]
 

@@ -96,6 +96,12 @@ class Webhook(BaseModel):
     url: str
 
 
+class WebhookIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    url: str
+
+
 class IntegrationType(str, Enum):
     SLACK = "slack"
     DISCORD = "discord"
@@ -113,8 +119,8 @@ class Integration(BaseModel):
 class ConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    check_interval_seconds: Optional[int] = None
-    request_timeout_ms: Optional[int] = None
+    check_interval_seconds: Optional[int] = Field(default=None, gt=0)
+    request_timeout_ms: Optional[int] = Field(default=None, gt=0)
 
 
 class HealthResponse(BaseModel):
